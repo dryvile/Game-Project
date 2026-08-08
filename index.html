@@ -3,130 +3,183 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Party Clicker</title>
+    <title>Open World Canvas</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
-        * { box-sizing: border-box; touch-action: manipulation; }
-        body { font-family: sans-serif; text-align: center; margin: 0; padding: 20px; background-color: #f4f7f6; }
-        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; margin: 0 auto 20px auto; }
-        input { width: 80%; padding: 12px; margin: 8px 0; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; }
-        button { padding: 14px 24px; font-size: 18px; font-weight: bold; color: white; background-color: #007bff; border: none; border-radius: 8px; cursor: pointer; width: 85%; margin: 8px 0; }
-        button:disabled { background-color: #cccccc; cursor: not-allowed; }
-        #click-btn { background-color: #28a745; height: 100px; font-size: 24px; margin-top: 15px; }
-        #status { font-weight: bold; margin: 10px 0; }
+        * { box-sizing: border-box; touch-action: none; margin: 0; padding: 0; }
+        body { font-family: sans-serif; background-color: #111; color: white; overflow: hidden; }
+        
+        #ui-bar {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            z-index: 10; background: rgba(0,0,0,0.7); padding: 10px 15px;
+            border-radius: 8px; display: flex; gap: 8px; align-items: center;
+        }
+        input, button { padding: 8px 12px; font-size: 14px; border-radius: 4px; border: none; }
+        input { background: #222; color: #fff; border: 1px solid #444; width: 110px; }
+        button { background: #007bff; color: white; font-weight: bold; cursor: pointer; }
+        
+        #status { font-size: 12px; color: #aaa; text-align: center; margin-top: 4px; }
+
+        canvas { display: block; width: 100vw; height: 100vh; }
+
+        /* Mobile Controls */
+        #dpad {
+            position: absolute; bottom: 20px; left: 20px; z-index: 10;
+            display: grid; grid-template-columns: repeat(3, 50px); grid-template-rows: repeat(3, 50px); gap: 5px;
+        }
+        .dbtn { background: rgba(255, 255, 255, 0.2); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.3); color: white; font-size: 20px; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <div class="card">
-        <h1>Party Clicker</h1>
-        
-        <input type="text" id="username" placeholder="Your Display Name" value="Player1">
-        <input type="text" id="party-code" placeholder="Party Room Name (e.g. room123)">
-        
-        <div>
-            <button id="host-btn">Create Party</button>
-            <button id="join-btn">Join Party</button>
-        </div>
-
-        <p id="status">Status: Disconnected</p>
+    <div id="ui-bar">
+        <input type="text" id="room-input" placeholder="Room ID">
+        <button id="host-btn">Host</button>
+        <button id="join-btn">Join</button>
+        <div id="status">Disconnected</div>
     </div>
 
-    <div class="card">
-        <button id="click-btn" disabled>TAP / CLICK ME!</button>
-        <h3>Your Clicks: <span id="my-score">0</span></h3>
-        <h3><span id="opponent-name">Opponent</span>'s Clicks: <span id="opponent-score">0</span></h3>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="dpad">
+        <div></div><button class="dbtn" id="btn-up">▲</button><div></div>
+        <button class="dbtn" id="btn-left">◄</button><div></div><button class="dbtn" id="btn-right">►</button>
+        <div></div><button class="dbtn" id="btn-down">▼</button><div></div>
     </div>
 
     <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Local & Remote Player States
+        const player = { x: 400, y: 300, radius: 15, color: '#00ffcc', speed: 4 };
+        const peerPlayer = { x: -1000, y: -1000, radius: 15, color: '#ff3366', active: false };
+
+        const keys = {};
+
+        // Keyboard Controls (PC)
+        window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+        // Touch Controls (Mobile)
+        const mobileKeys = { up: false, down: false, left: false, right: false };
+        function bindTouch(id, direction) {
+            const btn = document.getElementById(id);
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); mobileKeys[direction] = true; });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); mobileKeys[direction] = false; });
+            btn.addEventListener('mousedown', () => mobileKeys[direction] = true);
+            btn.addEventListener('mouseup', () => mobileKeys[direction] = false);
+        }
+        bindTouch('btn-up', 'up');
+        bindTouch('btn-down', 'down');
+        bindTouch('btn-left', 'left');
+        bindTouch('btn-right', 'right');
+
+        // PeerJS Setup
         let peer = null;
         let conn = null;
-        let myScore = 0;
-        let opponentScore = 0;
-
-        const hostBtn = document.getElementById('host-btn');
-        const joinBtn = document.getElementById('join-btn');
-        const clickBtn = document.getElementById('click-btn');
         const statusText = document.getElementById('status');
 
-        // Create Party (Host)
-        hostBtn.addEventListener('click', () => {
-            const roomCode = getRoomCode();
-            if (!roomCode) return;
-
-            peer = new Peer(roomCode);
-
-            peer.on('open', () => {
-                statusText.innerText = `Party created! Tell friend to join room: ${roomCode}`;
-                statusText.style.color = "blue";
-            });
-
-            peer.on('connection', (connection) => {
-                conn = connection;
-                setupConnection();
-            });
-
-            peer.on('error', (err) => {
-                alert('Room name already taken or invalid. Try a different room name!');
+        document.getElementById('host-btn').addEventListener('click', () => {
+            const room = document.getElementById('room-input').value.trim() || 'room123';
+            peer = new Peer(room);
+            statusText.innerText = "Hosting: " + room;
+            
+            peer.on('connection', c => {
+                conn = c;
+                setupNetwork();
             });
         });
 
-        // Join Party (Client)
-        joinBtn.addEventListener('click', () => {
-            const roomCode = getRoomCode();
-            if (!roomCode) return;
-
+        document.getElementById('join-btn').addEventListener('click', () => {
+            const room = document.getElementById('room-input').value.trim() || 'room123';
             peer = new Peer();
-
             peer.on('open', () => {
-                conn = peer.connect(roomCode);
-                setupConnection();
+                conn = peer.connect(room);
+                setupNetwork();
             });
         });
 
-        function getRoomCode() {
-            const code = document.getElementById('party-code').value.trim().toLowerCase();
-            if (!code) {
-                alert('Please enter a Party Room Name!');
-                return null;
-            }
-            return code;
-        }
-
-        // Connection Handler
-        function setupConnection() {
+        function setupNetwork() {
             conn.on('open', () => {
-                const name = document.getElementById('username').value || 'Player';
-                statusText.innerText = "Connected to Party!";
-                statusText.style.color = "green";
-                clickBtn.disabled = false;
-
-                // Send name to peer
-                conn.send({ type: 'init', name: name });
+                statusText.innerText = "Connected!";
+                peerPlayer.active = true;
             });
-
-            conn.on('data', (data) => {
-                if (data.type === 'init') {
-                    document.getElementById('opponent-name').innerText = data.name;
-                } else if (data.type === 'click') {
-                    opponentScore++;
-                    document.getElementById('opponent-score').innerText = opponentScore;
+            conn.on('data', data => {
+                if (data.type === 'pos') {
+                    peerPlayer.x = data.x;
+                    peerPlayer.y = data.y;
                 }
             });
         }
 
-        // Touch & Click Support for Mobile / PC
-        function handleClick(e) {
-            e.preventDefault();
+        // Game Loop
+        function update() {
+            // Movement logic (PC + Mobile)
+            if (keys['w'] || keys['arrowup'] || mobileKeys.up) player.y -= player.speed;
+            if (keys['s'] || keys['arrowdown'] || mobileKeys.down) player.y += player.speed;
+            if (keys['a'] || keys['arrowleft'] || mobileKeys.left) player.x -= player.speed;
+            if (keys['d'] || keys['arrowright'] || mobileKeys.right) player.x += player.speed;
+
+            // Send position over network
             if (conn && conn.open) {
-                myScore++;
-                document.getElementById('my-score').innerText = myScore;
-                conn.send({ type: 'click' });
+                conn.send({ type: 'pos', x: player.x, y: player.y });
             }
         }
 
-        clickBtn.addEventListener('touchstart', handleClick);
-        clickBtn.addEventListener('click', handleClick);
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Draw Grid Baseplate
+            const gridSize = 50;
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 1;
+            for (let x = 0; x < canvas.width; x += gridSize) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += gridSize) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+            }
+
+            // 2. Simple Ambient Glow / Lighting (Remote Player)
+            if (peerPlayer.active) {
+                const gradient = ctx.createRadialGradient(peerPlayer.x, peerPlayer.y, 5, peerPlayer.x, peerPlayer.y, 60);
+                gradient.addColorStop(0, 'rgba(255, 51, 102, 0.4)');
+                gradient.addColorStop(1, 'rgba(255, 51, 102, 0)');
+                ctx.fillStyle = gradient;
+                ctx.beginPath(); ctx.arc(peerPlayer.x, peerPlayer.y, 60, 0, Math.PI * 2); ctx.fill();
+
+                // Character
+                ctx.fillStyle = peerPlayer.color;
+                ctx.beginPath(); ctx.arc(peerPlayer.x, peerPlayer.y, peerPlayer.radius, 0, Math.PI * 2); ctx.fill();
+            }
+
+            // 3. Simple Ambient Glow / Lighting (Local Player)
+            const pGradient = ctx.createRadialGradient(player.x, player.y, 5, player.x, player.y, 60);
+            pGradient.addColorStop(0, 'rgba(0, 255, 204, 0.4)');
+            pGradient.addColorStop(1, 'rgba(0, 255, 204, 0)');
+            ctx.fillStyle = pGradient;
+            ctx.beginPath(); ctx.arc(player.x, player.y, 60, 0, Math.PI * 2); ctx.fill();
+
+            // Character
+            ctx.fillStyle = player.color;
+            ctx.beginPath(); ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2); ctx.fill();
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
     </script>
 </body>
 </html>
