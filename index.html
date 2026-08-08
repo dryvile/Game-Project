@@ -2,77 +2,131 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple PeerJS Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Party Clicker</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 50px; }
-        button { padding: 10px 20px; font-size: 18px; margin: 10px; cursor: pointer; }
-        #status { font-weight: bold; color: green; }
+        * { box-sizing: border-box; touch-action: manipulation; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; margin: 0; padding: 20px; background-color: #f4f7f6; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; margin: 0 auto 20px auto; }
+        input { width: 80%; padding: 12px; margin: 8px 0; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; }
+        button { padding: 14px 24px; font-size: 18px; font-weight: bold; color: white; background-color: #007bff; border: none; border-radius: 8px; cursor: pointer; width: 85%; margin: 8px 0; }
+        button:disabled { background-color: #cccccc; cursor: not-allowed; }
+        #click-btn { background-color: #28a745; height: 100px; font-size: 24px; margin-top: 15px; }
+        #status { font-weight: bold; margin: 10px 0; }
     </style>
 </head>
 <body>
 
-    <h1>Simple Multiplayer Clicker</h1>
-    <p>Your Peer ID: <span id="my-id">Generating...</span></p>
+    <div class="card">
+        <h1>Party Clicker</h1>
+        
+        <input type="text" id="username" placeholder="Your Name" value="Player1">
+        <input type="text" id="party-code" placeholder="Party Room Code (e.g. party123)">
+        
+        <div>
+            <button id="host-btn">Create Party</button>
+            <button id="join-btn">Join Party</button>
+        </div>
 
-    <div>
-        <input type="text" id="peer-id-input" placeholder="Enter Host's ID">
-        <button id="connect-btn">Connect to Host</button>
+        <p id="status">Status: Disconnected</p>
     </div>
 
-    <p id="status">Status: Disconnected</p>
-
-    <button id="click-btn" disabled>Click Me!</button>
-    <h2>Opponent Clicks: <span id="opponent-score">0</span></h2>
+    <div class="card">
+        <button id="click-btn" disabled>TAP / CLICK ME!</button>
+        <h3>Your Clicks: <span id="my-score">0</span></h3>
+        <h3><span id="opponent-name">Opponent</span>'s Clicks: <span id="opponent-score">0</span></h3>
+    </div>
 
     <script>
-        // Initialize PeerJS
-        const peer = new Peer();
+        let peer = null;
         let conn = null;
-        let opponentClicks = 0;
+        let myScore = 0;
+        let opponentScore = 0;
 
-        // Display assigned Peer ID
-        peer.on('open', (id) => {
-            document.getElementById('my-id').innerText = id;
-        });
+        const hostBtn = document.getElementById('host-btn');
+        const joinBtn = document.getElementById('join-btn');
+        const clickBtn = document.getElementById('click-btn');
+        const statusText = document.getElementById('status');
 
-        // Handle incoming connection (Host side)
-        peer.on('connection', (connection) => {
-            conn = connection;
-            setupConnection();
-        });
+        // Create Party (Host)
+        hostBtn.addEventListener('click', () => {
+            const roomCode = getRoomCode();
+            if (!roomCode) return;
 
-        // Handle outgoing connection (Client side)
-        document.getElementById('connect-btn').addEventListener('click', () => {
-            const hostId = document.getElementById('peer-id-input').value;
-            if (hostId) {
-                conn = peer.connect(hostId);
+            peer = new Peer(roomCode);
+
+            peer.on('open', () => {
+                statusText.innerText = `Party created! Tell friend to join: ${roomCode}`;
+                statusText.style.color = "blue";
+            });
+
+            peer.on('connection', (connection) => {
+                conn = connection;
                 setupConnection();
-            }
+            });
+
+            peer.on('error', (err) => {
+                alert('Room code might already be taken or invalid. Try another!');
+            });
         });
 
-        // Set up game communication listeners
+        // Join Party (Client)
+        joinBtn.addEventListener('click', () => {
+            const roomCode = getRoomCode();
+            if (!roomCode) return;
+
+            peer = new Peer();
+
+            peer.on('open', () => {
+                conn = peer.connect(roomCode);
+                setupConnection();
+            });
+        });
+
+        function getRoomCode() {
+            const code = document.getElementById('party-code').value.trim().toLowerCase();
+            if (!code) {
+                alert('Please enter a Party Room Code!');
+                return null;
+            }
+            return code;
+        }
+
+        // Handle WebRTC Connection & Data
         function setupConnection() {
             conn.on('open', () => {
-                document.getElementById('status').innerText = "Status: Connected!";
-                document.getElementById('click-btn').disabled = false;
+                const name = document.getElementById('username').value || 'Player';
+                statusText.innerText = "Connected to Party!";
+                statusText.style.color = "green";
+                clickBtn.disabled = false;
+
+                // Send initial username to partner
+                conn.send({ type: 'init', name: name });
             });
 
             conn.on('data', (data) => {
-                if (data.type === 'click') {
-                    opponentClicks++;
-                    document.getElementById('opponent-score').innerText = opponentClicks;
+                if (data.type === 'init') {
+                    document.getElementById('opponent-name').innerText = data.name;
+                } else if (data.type === 'click') {
+                    opponentScore++;
+                    document.getElementById('opponent-score').innerText = opponentScore;
                 }
             });
         }
 
-        // Send click event to connected peer
-        document.getElementById('click-btn').addEventListener('click', () => {
+        // Tap or Click Event for Mobile & PC
+        function handleClick(e) {
+            e.preventDefault(); // Prevents double triggers on mobile
             if (conn && conn.open) {
+                myScore++;
+                document.getElementById('my-score').innerText = myScore;
                 conn.send({ type: 'click' });
             }
-        });
+        }
+
+        clickBtn.addEventListener('touchstart', handleClick);
+        clickBtn.addEventListener('click', handleClick);
     </script>
 </body>
 </html>
