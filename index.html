@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple PeerJS Game</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+        button { padding: 10px 20px; font-size: 18px; margin: 10px; cursor: pointer; }
+        #status { font-weight: bold; color: green; }
+    </style>
+</head>
+<body>
+
+    <h1>Simple Multiplayer Clicker</h1>
+    <p>Your Peer ID: <span id="my-id">Generating...</span></p>
+
+    <div>
+        <input type="text" id="peer-id-input" placeholder="Enter Host's ID">
+        <button id="connect-btn">Connect to Host</button>
+    </div>
+
+    <p id="status">Status: Disconnected</p>
+
+    <button id="click-btn" disabled>Click Me!</button>
+    <h2>Opponent Clicks: <span id="opponent-score">0</span></h2>
+
+    <script>
+        // Initialize PeerJS
+        const peer = new Peer();
+        let conn = null;
+        let opponentClicks = 0;
+
+        // Display assigned Peer ID
+        peer.on('open', (id) => {
+            document.getElementById('my-id').innerText = id;
+        });
+
+        // Handle incoming connection (Host side)
+        peer.on('connection', (connection) => {
+            conn = connection;
+            setupConnection();
+        });
+
+        // Handle outgoing connection (Client side)
+        document.getElementById('connect-btn').addEventListener('click', () => {
+            const hostId = document.getElementById('peer-id-input').value;
+            if (hostId) {
+                conn = peer.connect(hostId);
+                setupConnection();
+            }
+        });
+
+        // Set up game communication listeners
+        function setupConnection() {
+            conn.on('open', () => {
+                document.getElementById('status').innerText = "Status: Connected!";
+                document.getElementById('click-btn').disabled = false;
+            });
+
+            conn.on('data', (data) => {
+                if (data.type === 'click') {
+                    opponentClicks++;
+                    document.getElementById('opponent-score').innerText = opponentClicks;
+                }
+            });
+        }
+
+        // Send click event to connected peer
+        document.getElementById('click-btn').addEventListener('click', () => {
+            if (conn && conn.open) {
+                conn.send({ type: 'click' });
+            }
+        });
+    </script>
+</body>
+</html>
