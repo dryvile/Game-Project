@@ -7,7 +7,7 @@
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         * { box-sizing: border-box; touch-action: manipulation; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; margin: 0; padding: 20px; background-color: #f4f7f6; }
+        body { font-family: sans-serif; text-align: center; margin: 0; padding: 20px; background-color: #f4f7f6; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; margin: 0 auto 20px auto; }
         input { width: 80%; padding: 12px; margin: 8px 0; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; }
         button { padding: 14px 24px; font-size: 18px; font-weight: bold; color: white; background-color: #007bff; border: none; border-radius: 8px; cursor: pointer; width: 85%; margin: 8px 0; }
@@ -21,8 +21,8 @@
     <div class="card">
         <h1>Party Clicker</h1>
         
-        <input type="text" id="username" placeholder="Your Name" value="Player1">
-        <input type="text" id="party-code" placeholder="Party Room Code (e.g. party123)">
+        <input type="text" id="username" placeholder="Your Display Name" value="Player1">
+        <input type="text" id="party-code" placeholder="Party Room Name (e.g. room123)">
         
         <div>
             <button id="host-btn">Create Party</button>
@@ -57,7 +57,7 @@
             peer = new Peer(roomCode);
 
             peer.on('open', () => {
-                statusText.innerText = `Party created! Tell friend to join: ${roomCode}`;
+                statusText.innerText = `Party created! Tell friend to join room: ${roomCode}`;
                 statusText.style.color = "blue";
             });
 
@@ -67,7 +67,7 @@
             });
 
             peer.on('error', (err) => {
-                alert('Room code might already be taken or invalid. Try another!');
+                alert('Room name already taken or invalid. Try a different room name!');
             });
         });
 
@@ -87,13 +87,13 @@
         function getRoomCode() {
             const code = document.getElementById('party-code').value.trim().toLowerCase();
             if (!code) {
-                alert('Please enter a Party Room Code!');
+                alert('Please enter a Party Room Name!');
                 return null;
             }
             return code;
         }
 
-        // Handle WebRTC Connection & Data
+        // Connection Handler
         function setupConnection() {
             conn.on('open', () => {
                 const name = document.getElementById('username').value || 'Player';
@@ -101,7 +101,7 @@
                 statusText.style.color = "green";
                 clickBtn.disabled = false;
 
-                // Send initial username to partner
+                // Send name to peer
                 conn.send({ type: 'init', name: name });
             });
 
@@ -115,9 +115,9 @@
             });
         }
 
-        // Tap or Click Event for Mobile & PC
+        // Touch & Click Support for Mobile / PC
         function handleClick(e) {
-            e.preventDefault(); // Prevents double triggers on mobile
+            e.preventDefault();
             if (conn && conn.open) {
                 myScore++;
                 document.getElementById('my-score').innerText = myScore;
