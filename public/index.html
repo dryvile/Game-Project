@@ -2,130 +2,144 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multiplayer Shooter</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Canvas Gun Game</title>
   <style>
+    * { box-sizing: border-box; touch-action: none; }
     body {
       margin: 0;
       padding: 0;
       background: #1e1e24;
       display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: center;
       height: 100vh;
-      overflow: hidden;
       color: #fff;
       font-family: sans-serif;
+      overflow: hidden;
     }
     canvas {
       background: #2b2d42;
-      border: 3px solid #8d99ae;
-      box-shadow: 0 0 20px rgba(0,0,0,0.5);
+      border: 2px solid #8d99ae;
+      max-width: 100%;
+      max-height: 80vh;
     }
+    p { margin: 10px 0 0; font-size: 14px; color: #8d99ae; }
   </style>
 </head>
 <body>
 
-<canvas id="gameCanvas" width="800" height="600"></canvas>
+<canvas id="game" width="800" height="600"></canvas>
+<p>Tap/Click anywhere on screen to move and shoot!</p>
 
-<script src="/socket.io/socket.io.js"></script>
 <script>
-  const socket = io();
-  const canvas = document.getElementById('gameCanvas');
+  const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
 
-  // Player controls state
-  const keys = { w: false, a: false, s: false, d: false };
-  const mouse = { x: 0, y: 0 };
-  
-  let localPlayer = { x: 400, y: 300, speed: 4 };
-  let gameState = { players: {}, bullets: [] };
+  let player = { x: 400, y: 300, angle: 0, color: '#ef233c' };
+  let bullets = [];
+  let targets = [];
 
-  // Event Listeners
-  window.addEventListener('keydown', (e) => {
-    const key = e.key.toLowerCase();
-    if (keys.hasOwnProperty(key)) keys[key] = true;
-  });
+  // Spawn simple targets
+  setInterval(() => {
+    if (targets.length < 5) {
+      targets.push({
+        x: Math.random() * (canvas.width - 40) + 20,
+        y: Math.random() * (canvas.height - 40) + 20
+      });
+    }
+  }, 1500);
 
-  window.addEventListener('keyup', (e) => {
-    const key = e.key.toLowerCase();
-    if (keys.hasOwnProperty(key)) keys[key] = false;
-  });
-
-  canvas.addEventListener('mousemove', (e) => {
+  function handleInput(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
-    mouse.x = e.clientX - rect.left;
-    mouse.y = e.clientY - rect.top;
-  });
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
 
-  canvas.addEventListener('click', () => {
-    const angle = Math.atan2(mouse.y - localPlayer.y, mouse.x - localPlayer.x);
-    socket.emit('shoot', {
-      x: localPlayer.x,
-      y: localPlayer.y,
-      angle: angle
-    });
-  });
+    const targetX = (clientX - rect.left) * scaleX;
+    const targetY = (clientY - rect.top) * scaleY;
 
-  // Receive game updates from server
-  socket.on('stateUpdate', (state) => {
-    gameState = state;
-  });
+    // Turn toward tap/click
+    player.angle = Math.atan2(targetY - player.y, targetX - player.x);
 
-  // Local game loop
-  function update() {
-    // Movement logic
-    if (keys.w && localPlayer.y > 20) localPlayer.y -= localPlayer.speed;
-    if (keys.s && localPlayer.y < canvas.height - 20) localPlayer.y += localPlayer.speed;
-    if (keys.a && localPlayer.x > 20) localPlayer.x -= localPlayer.speed;
-    if (keys.d && localPlayer.x < canvas.width - 20) localPlayer.x += localPlayer.speed;
+    // Move slightly toward tap/click
+    player.x += Math.cos(player.angle) * 15;
+    player.y += Math.sin(player.angle) * 15;
 
-    // Calculate aiming angle
-    const angle = Math.atan2(mouse.y - localPlayer.y, mouse.x - localPlayer.x);
-
-    // Send position to server
-    socket.emit('playerUpdate', {
-      x: localPlayer.x,
-      y: localPlayer.y,
-      angle: angle
+    // Shoot bullet
+    bullets.push({
+      x: player.x,
+      y: player.y,
+      vx: Math.cos(player.angle) * 12,
+      vy: Math.sin(player.angle) * 12,
+      life: 60
     });
   }
 
-  // Render loop
+  // Handle Touch and Mouse Controls
+  window.addEventListener('pointerdown', (e) => handleInput(e.clientX, e.clientY));
+
+  function update() {
+    // Update Bullets
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      let b = bullets[i];
+      b.x += b.vx;
+      b.y += b.vy;
+      b.life--;
+
+      // Check hit target
+      for (let j = targets.length - 1; j >= 0; j--) {
+        let t = targets[j];
+        let dist = Math.hypot(b.x - t.x, b.y - t.y);
+        if (dist < 20) {
+          targets.splice(j, 1);
+          bullets.splice(i, 1);
+          break;
+        }
+      }
+
+      if (b && b.life <= 0) bullets.splice(i, 1);
+    }
+  }
+
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw Bullets
+    // Draw Targets
     ctx.fillStyle = '#ffb703';
-    gameState.bullets.forEach(b => {
+    targets.forEach(t => {
       ctx.beginPath();
-      ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+      ctx.arc(t.x, t.y, 15, 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // Draw Players
-    Object.keys(gameState.players).forEach(id => {
-      const p = gameState.players[id];
-
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.angle);
-
-      // Gun
-      ctx.fillStyle = '#8d99ae';
-      ctx.fillRect(10, -3, 15, 6);
-
-      // Player Body
-      ctx.fillStyle = p.color || '#ef233c';
+    // Draw Bullets
+    ctx.fillStyle = '#edf2f4';
+    bullets.forEach(b => {
       ctx.beginPath();
-      ctx.arc(0, 0, 15, 0, Math.PI * 2);
+      ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
       ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#edf2f4';
-      ctx.stroke();
-
-      ctx.restore();
     });
+
+    // Draw Player
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.angle);
+
+    // Gun
+    ctx.fillStyle = '#8d99ae';
+    ctx.fillRect(10, -4, 16, 8);
+
+    // Body
+    ctx.fillStyle = player.color;
+    ctx.beginPath();
+    ctx.arc(0, 0, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#edf2f4';
+    ctx.stroke();
+
+    ctx.restore();
   }
 
   function loop() {
